@@ -18,13 +18,13 @@ psql -h <db-host> -p <db-port> -U <db-user> -d <db> -f audit.sql --single-transa
 Run the following sql to setup audit on a table
 
 ```sql
-select audit.audit_table('author');
+select audit.audit_table('author', true, false, '{id}');
 ```
 
 For a table in a different schema name as follows:
 
 ```sql
-select audit.audit_table('shipping.delivery');
+select audit.audit_table('shipping.delivery', true, false, '{id}');
 ```
 
 This sets up triggers on the given table which logs any change (insert/update/delete) into the table `audit.logged_actions`.
@@ -45,6 +45,18 @@ The function `audit.audit_table` takes the following arguments:
 | `included_cols`    | Columns of data that will be recorded; default none |
 
 ### Examples
+
+Do not log changes for every row and don't log any data
+
+```sql
+select audit.audit_table('author', false);
+```
+
+Log names of columns that changed for every row but don't log the sql statement and don't log any data
+
+```sql
+select audit.audit_table('author', true, false);
+```
 
 Log names of columns that changed for every row, log the sql statement, but only log the data of the columns `id` and `company_id`
 
