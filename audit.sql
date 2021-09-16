@@ -140,7 +140,7 @@ BEGIN
     IF (TG_OP = 'UPDATE' AND TG_LEVEL = 'ROW') THEN
         old_r = to_jsonb(OLD);
         new_r = to_jsonb(NEW);
-        audit_row.row_data = new_r - ARRAY(SELECT jsonb_object_keys(new_r - included_cols));
+        audit_row.row_data = old_r - ARRAY(SELECT jsonb_object_keys(old_r - included_cols));
         SELECT
           array_to_json(ARRAY(SELECT jsonb_object_keys(jsonb_object_agg(new_t.key, new_t.value))))
         INTO
