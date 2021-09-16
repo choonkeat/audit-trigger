@@ -40,13 +40,13 @@ The function `audit.audit_table` takes the following arguments:
 | argument | description |
 | --- | --- |
 | `target_table`     | Table name, schema qualified if not on search_path |
-| `audit_rows`       | Record which columns changed and data for columns in `included_cols`, or only audit at a statement level |
+| `audit_rows`       | Record names of columns that changed and data for columns in `included_cols`, or only audit at a statement level |
 | `audit_query_text` | Record the text of the client query that triggered the audit event? |
 | `included_cols`    | Columns of data that will be recorded; default none |
 
 ### Examples
 
-Log changed columns for every row, log the sql statement, but only log the data of the columns `id` and `company_id`
+Log names of columns that changed for every row, log the sql statement, but only log the data of the columns `id` and `company_id`
 
 ```sql
 select audit.audit_table('author', true, true, '{id,company_id}');
