@@ -1,3 +1,12 @@
+-- This is based on https://github.com/hasura/audit-trigger.
+--
+-- Few changes from the original
+-- 1. `changed_fields` only store the column names that were updated; no values
+-- 2. `row_data` only stores key-value pairs of columns mentioned in `included_cols` parameter
+--    i.e. works in reverse manner to `ignored_cols`
+--
+-- The following are comments preserved from the original file:
+
 -- This is based on 2ndQuadrant/audit-trigger.
 --
 -- Few changes from the original
@@ -92,7 +101,7 @@ CREATE INDEX logged_actions_action_idx ON audit.logged_actions(action);
 CREATE OR REPLACE FUNCTION audit.if_modified_func() RETURNS TRIGGER AS $body$
 DECLARE
     audit_row audit.logged_actions;
-    excluded_cols text[] = ARRAY[]::text[];
+    included_cols text[] = ARRAY[]::text[];
     new_r jsonb;
     old_r jsonb;
 BEGIN
@@ -125,24 +134,24 @@ BEGIN
     END IF;
 
     IF TG_ARGV[1] IS NOT NULL THEN
-        excluded_cols = TG_ARGV[1]::text[];
+        included_cols = TG_ARGV[1]::text[];
     END IF;
 
     IF (TG_OP = 'UPDATE' AND TG_LEVEL = 'ROW') THEN
         old_r = to_jsonb(OLD);
         new_r = to_jsonb(NEW);
-        audit_row.row_data = old_r - excluded_cols;
+        audit_row.row_data = new_r - ARRAY(SELECT jsonb_object_keys(new_r - included_cols));
         SELECT
-          jsonb_object_agg(new_t.key, new_t.value) - excluded_cols
+          array_to_json(ARRAY(SELECT jsonb_object_keys(jsonb_object_agg(new_t.key, new_t.value))))
         INTO
           audit_row.changed_fields
         FROM jsonb_each(old_r) as old_t
         JOIN jsonb_each(new_r) as new_t
           ON (old_t.key = new_t.key AND old_t.value <> new_t.value);
     ELSIF (TG_OP = 'DELETE' AND TG_LEVEL = 'ROW') THEN
-        audit_row.row_data = to_jsonb(OLD) - excluded_cols;
+        audit_row.row_data = to_jsonb(OLD) - ARRAY(SELECT jsonb_object_keys(to_jsonb(OLD) - included_cols));
     ELSIF (TG_OP = 'INSERT' AND TG_LEVEL = 'ROW') THEN
-        audit_row.row_data = to_jsonb(NEW) - excluded_cols;
+        audit_row.row_data = to_jsonb(NEW) - ARRAY(SELECT jsonb_object_keys(to_jsonb(NEW) - included_cols));
     ELSIF (TG_LEVEL = 'STATEMENT' AND TG_OP IN ('INSERT','UPDATE','DELETE','TRUNCATE')) THEN
         audit_row.statement_only = 't';
     ELSE
@@ -165,22 +174,15 @@ Optional parameters to trigger in CREATE TRIGGER call:
 
 param 0: boolean, whether to log the query text. Default 't'.
 
-param 1: text[], columns to ignore in updates. Default [].
+param 1: text[], columns to include in updates. Default [].
 
-         Updates to ignored cols are omitted from changed_fields.
+         Only values of included columns are logged.
 
-         Updates with only ignored cols changed are not inserted
-         into the audit log.
-
-         Almost all the processing work is still done for updates
-         that ignored. If you need to save the load, you need to use
-         WHEN clause on the trigger instead.
-
-         No warning or error is issued if ignored_cols contains columns
+         No warning or error is issued if included_cols contains columns
          that do not exist in the target table. This lets you specify
-         a standard set of ignored columns.
+         a standard set of included columns.
 
-There is no parameter to disable logging of values. Add this trigger as
+Only values of included columns are logged. Add this trigger as
 a 'FOR EACH STATEMENT' rather than 'FOR EACH ROW' trigger if you do not
 want to log row values.
 
@@ -191,23 +193,23 @@ $body$;
 
 
 
-CREATE OR REPLACE FUNCTION audit.audit_table(target_table regclass, audit_rows boolean, audit_query_text boolean, ignored_cols text[]) RETURNS void AS $body$
+CREATE OR REPLACE FUNCTION audit.audit_table(target_table regclass, audit_rows boolean, audit_query_text boolean, included_cols text[]) RETURNS void AS $body$
 DECLARE
   stm_targets text = 'INSERT OR UPDATE OR DELETE OR TRUNCATE';
   _q_txt text;
-  _ignored_cols_snip text = '';
+  _included_cols_snip text = '';
 BEGIN
     EXECUTE 'DROP TRIGGER IF EXISTS audit_trigger_row ON ' || target_table;
     EXECUTE 'DROP TRIGGER IF EXISTS audit_trigger_stm ON ' || target_table;
 
     IF audit_rows THEN
-        IF array_length(ignored_cols,1) > 0 THEN
-            _ignored_cols_snip = ', ' || quote_literal(ignored_cols);
+        IF array_length(included_cols,1) > 0 THEN
+            _included_cols_snip = ', ' || quote_literal(included_cols);
         END IF;
         _q_txt = 'CREATE TRIGGER audit_trigger_row AFTER INSERT OR UPDATE OR DELETE ON ' ||
                  target_table ||
                  ' FOR EACH ROW EXECUTE PROCEDURE audit.if_modified_func(' ||
-                 quote_literal(audit_query_text) || _ignored_cols_snip || ');';
+                 quote_literal(audit_query_text) || _included_cols_snip || ');';
         RAISE NOTICE '%',_q_txt;
         EXECUTE _q_txt;
         stm_targets = 'TRUNCATE';
@@ -232,7 +234,7 @@ Arguments:
    target_table:     Table name, schema qualified if not on search_path
    audit_rows:       Record each row change, or only audit at a statement level
    audit_query_text: Record the text of the client query that triggered the audit event?
-   ignored_cols:     Columns to exclude from update diffs, ignore updates that change only ignored cols.
+   included_cols:    Columns for which to log values.
 $body$;
 
 -- Pg doesn't allow variadic calls with 0 params, so provide a wrapper
