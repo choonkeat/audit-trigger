@@ -1,9 +1,9 @@
 A simple, customisable table audit system for PostgreSQL implemented using triggers.
 
-This is based off https://github.com/2ndQuadrant/audit-trigger with the following changes
+This is based off https://github.com/hasura/audit-trigger with the following changes
 
-1. The row data is stored in `jsonb`.
-2. Logs user information from hasura's graphql-engine (accessible by `current_setting('hasura.user')`).
+1. `changed_fields` only store the column names that were updated; no values
+2. `row_data` only stores key-value pairs of columns mentioned in `included_cols` parameter i.e. works in reverse manner to the original `ignored_cols`
 
 ## Installation
 
@@ -39,27 +39,15 @@ The function `audit.audit_table` takes the following arguments:
 
 | argument | description |
 | --- | --- |
-| `target_table`    | Table name, schema qualified if not on search_path |
-| `audit_rows`      | Record each row change, or only audit at a statement level |
+| `target_table`     | Table name, schema qualified if not on search_path |
+| `audit_rows`       | Record which columns changed and data for columns in `included_cols`, or only audit at a statement level |
 | `audit_query_text` | Record the text of the client query that triggered the audit event? |
-| `ignored_cols`  | Columns to exclude from update diffs, ignore updates that change only ignored cols. |
+| `included_cols`    | Columns of data that will be recorded; default none |
 
 ### Examples
 
-Do not log changes for every row
+Log changed columns for every row, log the sql statement, but only log the data of the columns `id` and `company_id`
 
 ```sql
-select audit.audit_table('author', false);
-```
-
-Log changes for every row but don't log the sql statement
-
-```sql
-select audit.audit_table('author', true, false);
-```
-
-Log changes for every row, log the sql statement, but don't log the data of the columns `email` and `phone_number`
-
-```sql
-select audit.audit_table('author', true, true, '{email,phone_number}');
+select audit.audit_table('author', true, true, '{id,company_id}');
 ```
